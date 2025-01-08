@@ -1,0 +1,9 @@
+restarts              : 0
+conflicts             : 0              (0 /sec)
+decisions             : 0              (0 /sec)
+propagations          : 94             (14435 /sec)
+conflict literals     : 0              ( nan % deleted)
+Memory used           : 3.14 MB
+CPU time              : 0.006512 s
+
+UNSATISFIABLE

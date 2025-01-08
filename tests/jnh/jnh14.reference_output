@@ -1,0 +1,15 @@
+==================================[MINISAT]===================================
+| Conflicts |     ORIGINAL     |              LEARNT              | Progress |
+|           | Clauses Literals |   Limit Clauses Literals  Lit/Cl |          |
+==============================================================================
+|         0 |     850     4163 |     283       0        0     nan |  0.000 % |
+==============================================================================
+restarts              : 1
+conflicts             : 29             (50347 /sec)
+decisions             : 35             (60764 /sec)
+propagations          : 896            (1555556 /sec)
+conflict literals     : 93             (38.00 % deleted)
+Memory used           : 1.69 MB
+CPU time              : 0.000576 s
+
+UNSATISFIABLE
