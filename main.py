@@ -169,7 +169,7 @@ def propagate(
             reason_clause,
             reverse_clauses
         )
-        
+
         if explanation is not None:
             return explanation
 
@@ -179,18 +179,33 @@ def decide(
     clauses: list[Clause],
     variable_values: list[int],
     decision_stack: list[tuple[int, Optional[Clause]]],
-    reverse_clauses: list[list[int]]
+    reverse_clauses: list[list[int]],
+    score: list[float]
 ):
-    for clause in clauses:
-        solved = any([var == variable_values[abs(var)] for var in clause.watched_literals])
-        if not solved:
-            var = clause.watched_literals[0]
-            for idx in reverse_clauses[abs(var)]:
-                clauses[idx].set_literal(var)
-            variable_values[abs(var)] = var
-            decision_stack.append((var, None))
-            return True
-    return False
+    # for clause in clauses:
+    #     solved = any([var == variable_values[abs(var)] for var in clause.watched_literals])
+    #     if not solved:
+    #         var = clause.watched_literals[0]
+    #         for idx in reverse_clauses[abs(var)]:
+    #             clauses[idx].set_literal(var)
+    #         variable_values[abs(var)] = var
+    #         decision_stack.append((var, None))
+    #         return True
+    # return False
+
+    selected_var = None
+    for i in range(1, len(score)):
+        if variable_values[i] == 0 and (selected_var is None or score[i] > score[selected_var]):
+            selected_var = i
+
+    if selected_var is None:
+        return False
+    
+    for idx in reverse_clauses[selected_var]:
+        clauses[idx].set_literal(selected_var)
+    variable_values[selected_var] = selected_var
+    decision_stack.append((selected_var, None))
+    return True
 
 def get_biggest_variable(clauses: list[Clause]):
     res = 0
@@ -199,6 +214,13 @@ def get_biggest_variable(clauses: list[Clause]):
             res = max(res, abs(var))
     return res
 
+def setup_vsids(clauses: list[Clause], num_variables: int):
+    score = [0 for _ in range(num_variables + 1)]
+    for clause in clauses:
+        for var in clause:
+            score[abs(var)] += 1
+    return score
+
 def generate_reverse_clauses(clauses: list[Clause], num_variables: int):
     reverse_clauses = [[] for _ in range(num_variables + 1)]
     for i in range(len(clauses)):
@@ -206,17 +228,28 @@ def generate_reverse_clauses(clauses: list[Clause], num_variables: int):
             reverse_clauses[abs(var)].append(i)
     return reverse_clauses
 
+def vsids_decay(score: list[float], num_variables: int):
+    decay = 0.95
+    for i in range(num_variables + 1):
+        score[i] *= decay
+
 def solve(clauses: list[Clause]):
     num_variables = get_biggest_variable(clauses)
     variable_values = [0 for _ in range(num_variables + 1)]
     reverse_clauses = generate_reverse_clauses(clauses, num_variables)
+    score = setup_vsids(clauses, num_variables)
 
     decision_stack = []
 
+    iteration = 1
     while True:
+
+        if iteration % 10000:
+            vsids_decay(score, num_variables)
+
         explanation = propagate(clauses, variable_values, decision_stack, reverse_clauses)
         if explanation is None:
-            if not decide(clauses, variable_values, decision_stack, reverse_clauses):
+            if not decide(clauses, variable_values, decision_stack, reverse_clauses, score):
                 return True
         elif len(explanation) == 0:
             return False
@@ -224,6 +257,7 @@ def solve(clauses: list[Clause]):
             clauses.append(explanation)
             for var in explanation:
                 reverse_clauses[abs(var)].append(len(clauses) - 1)
+                score[abs(var)] += 1
 
             while len(decision_stack) > 0:
                 value, reason = decision_stack.pop()
