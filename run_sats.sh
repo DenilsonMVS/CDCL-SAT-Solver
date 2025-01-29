@@ -6,11 +6,11 @@ python3 main.py pj1-tests/sat/uf20-0103.cnf
 python3 main.py pj1-tests/sat/sqrt10609.cnf
 python3 main.py pj1-tests/sat/uf20-0104.cnf
 python3 main.py pj1-tests/sat/cnfgen-php-10-10.cnf
-# python3 main.py pj1-tests/sat/prime841.cnf
+python3 main.py pj1-tests/sat/prime841.cnf
 python3 main.py pj1-tests/sat/sqrt11449.cnf
 python3 main.py pj1-tests/sat/uf20-0105.cnf
 python3 main.py pj1-tests/sat/elimredundant.cnf
-# python3 main.py pj1-tests/sat/prime961.cnf
+python3 main.py pj1-tests/sat/prime961.cnf
 python3 main.py pj1-tests/sat/uf20-01000.cnf
 python3 main.py pj1-tests/sat/uf20-0106.cnf
 python3 main.py pj1-tests/sat/prime121.cnf

@@ -1,7 +1,8 @@
 
 import sys
 from dataclasses import dataclass
-from typing import List, Set, Tuple, Optional, Iterator
+from typing import List, Set, Tuple, Optional, Iterator, Any
+import itertools
 
 def load_file(filename: str):
     lines = open(filename, "r").readlines()
@@ -17,13 +18,14 @@ def load_file(filename: str):
             num_clauses = int(parts[3])
             break
 
-    clauses: set[Clause] = set()
+    clauses: list[Clause] = []
     while num_clauses > 0:
         if lines[current_line][0] == "c":
             current_line += 1
             continue
 
-        clauses.add(Clause(set([int(value) for value in " ".join(lines[current_line].split()).split(" ")[:-1]])))
+        literals = [int(value) for value in " ".join(lines[current_line].split()).split(" ")[:-1]]
+        clauses.append(Clause(set(literals), []))
         current_line += 1
         num_clauses -= 1
 
@@ -32,27 +34,61 @@ def load_file(filename: str):
 
 @dataclass
 class Clause:
-    literals: set[int]
-    def __init__(self, literals: set[int]):
-        self.literals = literals
+    set_literals: set[int]
+    unset_literals: set[int]
+    watched_literals: list[int]
+
+    def __init__(self, literals: set[int], decision_stack: list[tuple[int, Optional[Any]]]):
+        self.unset_literals = literals
+        self.set_literals = set()
+        self.watched_literals = []
+
+        while len(self.watched_literals) < 2 and len(self.unset_literals) > 0:
+            value = next(iter(self.unset_literals))
+            self.watched_literals.append(value)
+            self.unset_literals.remove(value)
+
+        for lit, _ in decision_stack:
+            self.set_literal(lit)
+    
+    def set_literal(self, literal: int):
+        if -literal in self.watched_literals:
+            self.watched_literals.remove(-literal)
+            self.set_literals.add(-literal)
+        elif literal in self.unset_literals:
+            self.unset_literals.remove(literal)
+            self.unset_literals.add(self.watched_literals.pop())
+            self.watched_literals.append(literal)
+        elif -literal in self.unset_literals:
+            self.unset_literals.remove(-literal)
+            self.set_literals.add(-literal)
+
+        while len(self.watched_literals) < 2 and len(self.unset_literals) > 0:
+            value = next(iter(self.unset_literals))
+            self.watched_literals.append(value)
+            self.unset_literals.remove(value)
+    
+    def unset_literal(self, literal: int):
+        if -literal in self.set_literals:
+            self.set_literals.remove(-literal)
+            self.unset_literals.add(-literal)
+        
+        while len(self.watched_literals) < 2 and len(self.unset_literals) > 0:
+            value = next(iter(self.unset_literals))
+            self.watched_literals.append(value)
+            self.unset_literals.remove(value)
+
+    def __len__(self) -> int:
+        return len(self.watched_literals) + len(self.unset_literals) + len(self.set_literals)
 
     def __iter__(self) -> Iterator[int]:
-        return iter(self.literals)
-    
-    def __len__(self):
-        return len(self.literals)
-    
-    def __hash__(self):
-        x = 0
-        for lit in self.literals:
-            x ^= hash(lit)
-        return x
+        return itertools.chain(iter(self.watched_literals), iter(self.unset_literals), iter(self.set_literals))
 
     def __contains__(self, item: int) -> bool:
-        return item in self.literals
+        return item in self.watched_literals or item in self.unset_literals or item in self.set_literals
 
 
-def join_clauses(a: Clause, b: Clause):
+def join_clauses(a: Iterator[int], b: Iterator[int]):
     joined = set()
     for v in a:
         if -v not in b:
@@ -60,178 +96,162 @@ def join_clauses(a: Clause, b: Clause):
     for v in b:
         if -v not in a:
             joined.add(v)
-    return Clause(joined)
+    return joined
 
 
 def explain(
-    clauses: set[Clause],
-    variable_values: list[int],
-    decision_stack: list[tuple[int, bool]],
-    conflict_clause: Clause
+    decision_stack: list[tuple[int, Optional[Clause]]],
+    conflict_clause: set[int]
 ):
-    reverse_var_idx = {}
-    for i in range(len(decision_stack)):
-        reverse_var_idx[decision_stack[i][0]] = i
-
-    while True:
-        joined = False
-        for i in range(len(decision_stack) - 1, -1, -1):
-            var = decision_stack[i][0]
-            if -var not in conflict_clause:
-                continue
-
-            for clause in clauses:
-                
-                if var not in clause:
-                    continue
-
-                ok = True
-                for tmp in clause:
-                    if tmp == var:
-                        continue
-
-                    if variable_values[abs(tmp)] == tmp or -tmp not in reverse_var_idx or reverse_var_idx[-tmp] > i:
-                        ok = False
-                        break
-
-                if not ok:
-                    continue
-
-                conflict_clause = join_clauses(conflict_clause, clause)
-                joined = True
-                break
-            
-            if joined:
-                break
+    for i in range(len(decision_stack) - 1, -1, -1):
+        var, reason_clause = decision_stack[i]
+        if -var not in conflict_clause or reason_clause is None:
+            continue
         
-        if not joined:
-            return conflict_clause
+        conflict_clause = join_clauses(conflict_clause, reason_clause)
+    
+    return Clause(conflict_clause, decision_stack)
 
 
 def set_propagating_value(
-    clauses: set[Clause],
+    clauses: list[Clause],
     variable_values: list[int],
     decision_stack: list[tuple[int, bool]],
-    value_to_set: int
+    value_to_set: int,
+    reason: Clause,
+    reverse_clauses: list[list[int]]
 ):
     variable_values[abs(value_to_set)] = value_to_set
-    decision_stack.append((value_to_set, False))
+    decision_stack.append((value_to_set, reason))
+    for idx in reverse_clauses[abs(value_to_set)]:
+        clause = clauses[idx].set_literal(value_to_set)
 
     for clause in clauses:
-        solved = False
-        free_variables = []
-        
-        for var in clause:
-            value = variable_values[abs(var)]
-            if var == value:
-                solved = True
-                break
-
-            if value == 0:
-                free_variables.append(var)
-        
-        if not solved and len(free_variables) == 0:
-            return explain(clauses, variable_values, decision_stack, clause)
+        solved = any([var == variable_values[abs(var)] for var in clause.watched_literals])
+        if not solved and len(clause.watched_literals) == 0:
+            return explain(decision_stack, set(iter(clause)))
 
     return None
 
 
 def propagate(
-    clauses: set[Clause],
+    clauses: list[Clause],
     variable_values: list[int],
-    decision_stack: list[tuple[int, bool]]
+    decision_stack: list[tuple[int, Optional[Clause]]],
+    reverse_clauses: list[list[int]]
 ):
     while True:
         value_to_set = None
+        reason_clause = None
 
         for clause in clauses:
-
-            solved = False
-            free_variables = []
-            for var in clause:
-                value = variable_values[abs(var)]
-                if var == value:
-                    solved = True
-                    break
-
-                if variable_values[abs(var)] == 0:
-                    free_variables.append(var)
+            solved = any([var == variable_values[abs(var)] for var in clause.watched_literals])
+            if not solved and len(clause.watched_literals) == 0:
+                return explain(decision_stack, set(iter(clause)))
 
             if not solved:
-                if len(free_variables) == 1:
-                    value_to_set = free_variables[0]
+                if len(clause.watched_literals) == 1:
+                    value_to_set = clause.watched_literals[0]
+                    reason_clause = clause
                     break
-                elif len(free_variables) == 0:
+                elif len(clause.watched_literals) == 0:
                     return []
 
         if value_to_set is None:
             break
 
         # adiciono a clausula olhando as clausulas que estão finalizadas que possuem o literal
-        explanation = set_propagating_value(clauses, variable_values, decision_stack, value_to_set)
+        explanation = set_propagating_value(
+            clauses,
+            variable_values,
+            decision_stack,
+            value_to_set,
+            reason_clause,
+            reverse_clauses
+        )
+        
         if explanation is not None:
             return explanation
 
     return None
 
-def decide(clauses: set[Clause], variable_values: list[int], decision_stack: list[tuple[int, bool]]):
+def decide(
+    clauses: list[Clause],
+    variable_values: list[int],
+    decision_stack: list[tuple[int, Optional[Clause]]],
+    reverse_clauses: list[list[int]]
+):
     for clause in clauses:
-        for var in clause:
-            value = variable_values[abs(var)]
-            if value == var:
-                break
-
-            if value == 0:
-                variable_values[abs(var)] = var
-                decision_stack.append((var, True))
-                return True
+        solved = any([var == variable_values[abs(var)] for var in clause.watched_literals])
+        if not solved:
+            var = clause.watched_literals[0]
+            for idx in reverse_clauses[abs(var)]:
+                clauses[idx].set_literal(var)
+            variable_values[abs(var)] = var
+            decision_stack.append((var, None))
+            return True
     return False
 
-def get_biggest_variable(clauses: set[Clause]):
+def get_biggest_variable(clauses: list[Clause]):
     res = 0
     for clause in clauses:
         for var in clause:
             res = max(res, abs(var))
     return res
 
-def solve(clauses: set[Clause]):
+def generate_reverse_clauses(clauses: list[Clause], num_variables: int):
+    reverse_clauses = [[] for _ in range(num_variables + 1)]
+    for i in range(len(clauses)):
+        for var in clauses[i]:
+            reverse_clauses[abs(var)].append(i)
+    return reverse_clauses
+
+def solve(clauses: list[Clause]):
     num_variables = get_biggest_variable(clauses)
     variable_values = [0 for _ in range(num_variables + 1)]
+    reverse_clauses = generate_reverse_clauses(clauses, num_variables)
 
     decision_stack = []
 
     while True:
-        explanation = propagate(clauses, variable_values, decision_stack)
+        explanation = propagate(clauses, variable_values, decision_stack, reverse_clauses)
         if explanation is None:
-            if not decide(clauses, variable_values, decision_stack):
+            if not decide(clauses, variable_values, decision_stack, reverse_clauses):
                 return True
         elif len(explanation) == 0:
             return False
         else:
-            clauses.add(explanation)
+            clauses.append(explanation)
+            for var in explanation:
+                reverse_clauses[abs(var)].append(len(clauses) - 1)
 
             while len(decision_stack) > 0:
-                value, from_decide = decision_stack.pop()
+                value, reason = decision_stack.pop()
                 variable_values[abs(value)] = 0
 
                 if -value in explanation:
-                    decision_stack.append((value, from_decide))
+                    decision_stack.append((value, reason))
                     variable_values[abs(value)] = value
                     break
+
+                for clause in clauses:
+                    clause.unset_literal(value)
             
             while len(decision_stack) > 0:
-                (value, from_decide) = decision_stack.pop()
+                value, reason = decision_stack.pop()
                 variable_values[abs(value)] = 0
+                for clause in clauses:
+                    clause.unset_literal(value)
 
-                if from_decide:
-                    decision_stack.append((-value, False))
+                if reason is None:
+                    decision_stack.append((-value, {}))
                     variable_values[abs(value)] = -value
+                    for idx in reverse_clauses[abs(value)]:
+                        clauses[idx].set_literal(-value)
                     break
-            
+
             if len(decision_stack) == 0:
-                return False        
-
-
+                return False
 
 def main():
     clauses = load_file(sys.argv[1])
