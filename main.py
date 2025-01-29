@@ -1,6 +1,7 @@
 
 import sys
-
+from dataclasses import dataclass
+from typing import List, Set, Tuple, Optional, Iterator
 
 def load_file(filename: str):
     lines = open(filename, "r").readlines()
@@ -16,19 +17,42 @@ def load_file(filename: str):
             num_clauses = int(parts[3])
             break
 
-    clauses: list[set[int]] = []
+    clauses: set[Clause] = set()
     while num_clauses > 0:
         if lines[current_line][0] == "c":
             current_line += 1
             continue
 
-        clauses.append(set([int(value) for value in " ".join(lines[current_line].split()).split(" ")[:-1]]))
+        clauses.add(Clause(set([int(value) for value in " ".join(lines[current_line].split()).split(" ")[:-1]])))
         current_line += 1
         num_clauses -= 1
 
     return clauses
 
-def join_clauses(a: set[int], b: set[int]):
+
+@dataclass
+class Clause:
+    literals: set[int]
+    def __init__(self, literals: set[int]):
+        self.literals = literals
+
+    def __iter__(self) -> Iterator[int]:
+        return iter(self.literals)
+    
+    def __len__(self):
+        return len(self.literals)
+    
+    def __hash__(self):
+        x = 0
+        for lit in self.literals:
+            x ^= hash(lit)
+        return x
+
+    def __contains__(self, item: int) -> bool:
+        return item in self.literals
+
+
+def join_clauses(a: Clause, b: Clause):
     joined = set()
     for v in a:
         if -v not in b:
@@ -36,14 +60,14 @@ def join_clauses(a: set[int], b: set[int]):
     for v in b:
         if -v not in a:
             joined.add(v)
-    return joined
+    return Clause(joined)
 
 
 def explain(
-    clauses: list[set[int]],
+    clauses: set[Clause],
     variable_values: list[int],
     decision_stack: list[tuple[int, bool]],
-    wrong_clause: set[int]
+    conflict_clause: Clause
 ):
     reverse_var_idx = {}
     for i in range(len(decision_stack)):
@@ -53,7 +77,7 @@ def explain(
         joined = False
         for i in range(len(decision_stack) - 1, -1, -1):
             var = decision_stack[i][0]
-            if -var not in wrong_clause:
+            if -var not in conflict_clause:
                 continue
 
             for clause in clauses:
@@ -73,7 +97,7 @@ def explain(
                 if not ok:
                     continue
 
-                wrong_clause = join_clauses(wrong_clause, clause)
+                conflict_clause = join_clauses(conflict_clause, clause)
                 joined = True
                 break
             
@@ -81,11 +105,11 @@ def explain(
                 break
         
         if not joined:
-            return wrong_clause
+            return conflict_clause
 
 
 def set_propagating_value(
-    clauses: list[set[int]],
+    clauses: set[Clause],
     variable_values: list[int],
     decision_stack: list[tuple[int, bool]],
     value_to_set: int
@@ -113,7 +137,7 @@ def set_propagating_value(
 
 
 def propagate(
-    clauses: list[set[int]],
+    clauses: set[Clause],
     variable_values: list[int],
     decision_stack: list[tuple[int, bool]]
 ):
@@ -150,7 +174,7 @@ def propagate(
 
     return None
 
-def decide(clauses: list[set[int]], variable_values: list[int], decision_stack: list[tuple[int, bool]]):
+def decide(clauses: set[Clause], variable_values: list[int], decision_stack: list[tuple[int, bool]]):
     for clause in clauses:
         for var in clause:
             value = variable_values[abs(var)]
@@ -163,14 +187,14 @@ def decide(clauses: list[set[int]], variable_values: list[int], decision_stack: 
                 return True
     return False
 
-def get_biggest_variable(clauses: list[set[int]]):
+def get_biggest_variable(clauses: set[Clause]):
     res = 0
     for clause in clauses:
         for var in clause:
             res = max(res, abs(var))
     return res
 
-def solve(clauses: list[set[int]]):
+def solve(clauses: set[Clause]):
     num_variables = get_biggest_variable(clauses)
     variable_values = [0 for _ in range(num_variables + 1)]
 
@@ -184,13 +208,22 @@ def solve(clauses: list[set[int]]):
         elif len(explanation) == 0:
             return False
         else:
-            clauses.append(explanation)
+            clauses.add(explanation)
 
             while len(decision_stack) > 0:
-                value, _ = decision_stack.pop()
+                value, from_decide = decision_stack.pop()
                 variable_values[abs(value)] = 0
 
                 if -value in explanation:
+                    decision_stack.append((value, from_decide))
+                    variable_values[abs(value)] = value
+                    break
+            
+            while len(decision_stack) > 0:
+                (value, from_decide) = decision_stack.pop()
+                variable_values[abs(value)] = 0
+
+                if from_decide:
                     decision_stack.append((-value, False))
                     variable_values[abs(value)] = -value
                     break
@@ -201,7 +234,7 @@ def solve(clauses: list[set[int]]):
 
 
 def main():
-    clauses = load_file(sys.argv[1])    
+    clauses = load_file(sys.argv[1])
     print(solve(clauses))
 
 
