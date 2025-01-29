@@ -1,7 +1,7 @@
 
 import sys
 from dataclasses import dataclass
-from typing import List, Set, Tuple, Optional, Iterator, Any
+from typing import Optional, Iterator, Any
 import itertools
 
 def load_file(filename: str):
@@ -182,17 +182,6 @@ def decide(
     reverse_clauses: list[list[int]],
     score: list[float]
 ):
-    # for clause in clauses:
-    #     solved = any([var == variable_values[abs(var)] for var in clause.watched_literals])
-    #     if not solved:
-    #         var = clause.watched_literals[0]
-    #         for idx in reverse_clauses[abs(var)]:
-    #             clauses[idx].set_literal(var)
-    #         variable_values[abs(var)] = var
-    #         decision_stack.append((var, None))
-    #         return True
-    # return False
-
     selected_var = None
     for i in range(1, len(score)):
         if variable_values[i] == 0 and (selected_var is None or score[i] > score[selected_var]):
@@ -235,24 +224,40 @@ def vsids_decay(score: list[float], num_variables: int):
 
 def solve(clauses: list[Clause]):
     num_variables = get_biggest_variable(clauses)
+
+    # Guarda os valores das variáveis
+    # Se 0, indefinida
+    # Se -i, negativa
+    # Se i, positiva
     variable_values = [0 for _ in range(num_variables + 1)]
+    
+    # Guarda em que clausulas uma variável é presente
     reverse_clauses = generate_reverse_clauses(clauses, num_variables)
+
+    # Score para a heurístice de VSIDS
     score = setup_vsids(clauses, num_variables)
 
+    # Stack com os valores das variáveis
+    # Cada elemento é uma dupla. O primeiro elemento é o valor da variável.
+    # O segundo elemento pode ser None, ou uma Clausula
+    # Se for None, a variável assumiu o valor por conta de uma decisão
+    # Caso contrário, o valor foi assumido por propagação
+    # É guardada a cláusula que causou a propagação
+    # Para a operação de explain
     decision_stack = []
 
     iteration = 1
     while True:
 
-        if iteration % 10000:
+        if iteration % 10000 == 0:
             vsids_decay(score, num_variables)
 
         explanation = propagate(clauses, variable_values, decision_stack, reverse_clauses)
         if explanation is None:
             if not decide(clauses, variable_values, decision_stack, reverse_clauses, score):
-                return True
+                return decision_stack
         elif len(explanation) == 0:
-            return False
+            return None
         else:
             clauses.append(explanation)
             for var in explanation:
@@ -285,11 +290,21 @@ def solve(clauses: list[Clause]):
                     break
 
             if len(decision_stack) == 0:
-                return False
+                return None
+
+        iteration += 1
+
 
 def main():
     clauses = load_file(sys.argv[1])
-    print(solve(clauses))
+    result = solve(clauses)
+    if result is None:
+        print("UNSATISFIABLE")
+    else:
+        print("SATISFIABLE")
+        for value, _ in result:
+            print(value, end=" ")
+        print()
 
 
 
