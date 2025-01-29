@@ -32,6 +32,8 @@ def load_file(filename: str):
     return clauses
 
 
+# Classe de uma clausula
+# Responsável pela otimização de 2 watched literals
 @dataclass
 class Clause:
     set_literals: set[int]
@@ -99,6 +101,7 @@ def join_clauses(a: Iterator[int], b: Iterator[int]):
     return joined
 
 
+# Equivalente à regra de explain lecionada em aulas
 def explain(
     decision_stack: list[tuple[int, Optional[Clause]]],
     conflict_clause: set[int]
@@ -112,7 +115,10 @@ def explain(
     
     return Clause(conflict_clause, decision_stack)
 
-
+# Função que define o valor de uma variável
+# É chamada somente após a propagação
+# Se houver um conflito, retorna a clausula de conflito
+# Já passando pelo explain
 def set_propagating_value(
     clauses: list[Clause],
     variable_values: list[int],
@@ -133,13 +139,14 @@ def set_propagating_value(
 
     return None
 
-
+# Rotina de propagação
 def propagate(
     clauses: list[Clause],
     variable_values: list[int],
     decision_stack: list[tuple[int, Optional[Clause]]],
     reverse_clauses: list[list[int]]
 ):
+    # Enquanto houver variáveis a serem propagadas
     while True:
         value_to_set = None
         reason_clause = None
@@ -150,17 +157,18 @@ def propagate(
                 return explain(decision_stack, set(iter(clause)))
 
             if not solved:
-                if len(clause.watched_literals) == 1:
+                if len(clause.watched_literals) == 1:           # Encontramos uma clausula unitária
                     value_to_set = clause.watched_literals[0]
                     reason_clause = clause
                     break
-                elif len(clause.watched_literals) == 0:
+                elif len(clause.watched_literals) == 0:         # Encontramos uma clausula sem solução
                     return []
 
+        # Se não foi possível continuar a propagação, pare
         if value_to_set is None:
             break
 
-        # adiciono a clausula olhando as clausulas que estão finalizadas que possuem o literal
+        # Defino o valor da variável
         explanation = set_propagating_value(
             clauses,
             variable_values,
@@ -170,11 +178,14 @@ def propagate(
             reverse_clauses
         )
 
+        # Se ouver conflito, logo um explicação
         if explanation is not None:
             return explanation
 
     return None
 
+# Função responsável pela decisão
+# Utiliza VSIDS para decidir
 def decide(
     clauses: list[Clause],
     variable_values: list[int],
@@ -252,18 +263,24 @@ def solve(clauses: list[Clause]):
         if iteration % 10000 == 0:
             vsids_decay(score, num_variables)
 
+        # Tentamos propagar, e verificamos se há conflito
         explanation = propagate(clauses, variable_values, decision_stack, reverse_clauses)
         if explanation is None:
+            # Se não houver conflito, decidimos
             if not decide(clauses, variable_values, decision_stack, reverse_clauses, score):
+                # Se decidimos tudo que tinha para ser decidido, SAT!!! :)
                 return decision_stack
-        elif len(explanation) == 0:
+        elif len(explanation) == 0: # Se a explicação for uma clausula vazia, UNSAT :(
             return None
         else:
+            # Adicionamos a explicação nas outras clausulas
+            # Também precismaos atualizar o reverse_clauses e score
             clauses.append(explanation)
             for var in explanation:
                 reverse_clauses[abs(var)].append(len(clauses) - 1)
                 score[abs(var)] += 1
 
+            # Realiza backtrack
             while len(decision_stack) > 0:
                 value, reason = decision_stack.pop()
                 variable_values[abs(value)] = 0
@@ -276,6 +293,7 @@ def solve(clauses: list[Clause]):
                 for clause in clauses:
                     clause.unset_literal(value)
             
+            # Realiza backtrack (acredito ser desnecessário)
             while len(decision_stack) > 0:
                 value, reason = decision_stack.pop()
                 variable_values[abs(value)] = 0
@@ -289,6 +307,7 @@ def solve(clauses: list[Clause]):
                         clauses[idx].set_literal(-value)
                     break
 
+            # Se a stack de decisão ficar vazia, UNSAT :(
             if len(decision_stack) == 0:
                 return None
 
